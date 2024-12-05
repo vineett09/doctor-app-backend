@@ -122,7 +122,7 @@ router.get("/doctor/approved-appointments/:id", protect, async (req, res) => {
   try {
     const appointments = await Appointment.find({
       doctor: req.params.id,
-      status: "approved",
+      responseStatus: "approved",
     }).populate("user", "email");
     res.json(appointments);
   } catch (error) {
@@ -168,6 +168,162 @@ router.patch("/respond/:id", protect, async (req, res) => {
     );
 
     res.json({ msg: "Appointment updated", appointment });
+  } catch (error) {
+    console.error("Server error:", error);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// Mark appointment as completed
+router.patch("/appointment/:id/complete", protect, async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    appointment.status = "completed";
+    appointment.completedAt = new Date();
+    await appointment.save();
+
+    // Notify user about completion
+    await createNotification(
+      appointment.user,
+      "appointment_completed",
+      `Your appointment scheduled for ${new Date(
+        appointment.appointmentDate
+      ).toLocaleString()} has been marked as completed.`
+    );
+
+    res.json({ message: "Appointment marked as completed", appointment });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get completed appointments for a doctor
+router.get("/doctor/completed-appointments/:id", protect, async (req, res) => {
+  try {
+    const appointments = await Appointment.find({
+      doctor: req.params.id,
+      status: "completed",
+    }).populate("user", "email");
+    res.json(appointments);
+  } catch (error) {
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// Cancel appointment
+router.patch("/appointment/:id/cancel", protect, async (req, res) => {
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    appointment.status = "cancelled";
+    await appointment.save();
+
+    // Notify user about cancellation
+    await createNotification(
+      appointment.user,
+      "appointment_cancelled",
+      `Your appointment scheduled for has been cancelled for some reasons.`
+    );
+
+    res.json({ message: "Appointment cancelled successfully", appointment });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get cancelled appointments for a doctor
+router.get("/doctor/cancelled-appointments/:id", protect, async (req, res) => {
+  try {
+    const appointments = await Appointment.find({
+      doctor: req.params.id,
+      status: "cancelled",
+    }).populate("user", "email");
+    res.json(appointments);
+  } catch (error) {
+    console.error("Error fetching cancelled appointments:", error);
+    res.status(500).json({ msg: "Server error" });
+  }
+});
+
+// Reschedule appointment
+router.patch("/appointments/:id/reschedule", protect, async (req, res) => {
+  const { newAppointmentDate } = req.body;
+
+  try {
+    const appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({ message: "Appointment not found" });
+    }
+
+    appointment.appointmentDate = newAppointmentDate;
+    appointment.status = "rescheduled";
+    await appointment.save();
+
+    // Notify user about rescheduling
+    await createNotification(
+      appointment.user,
+      "appointment_rescheduled",
+      `Your appointment has been rescheduled to ${new Date(
+        newAppointmentDate
+      ).toLocaleString()}.`
+    );
+
+    res.json({ message: "Appointment rescheduled successfully", appointment });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+// Get rescheduled appointments for a doctor
+router.get(
+  "/doctor/rescheduled-appointments/:id",
+  protect,
+  async (req, res) => {
+    try {
+      const appointments = await Appointment.find({
+        doctor: req.params.id,
+        status: "rescheduled",
+      }).populate("user", "email");
+      res.json(appointments);
+    } catch (error) {
+      console.error("Error fetching cancelled appointments:", error);
+      res.status(500).json({ msg: "Server error" });
+    }
+  }
+);
+// Get appointments by status
+router.get("/doctor/:id/appointments/:status", protect, async (req, res) => {
+  try {
+    const validStatuses = [
+      "pending",
+      "approved",
+      "completed",
+      "cancelled",
+      "rescheduled",
+    ];
+    const { status } = req.params;
+
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ msg: "Invalid appointment status" });
+    }
+
+    const appointments = await Appointment.find({
+      doctor: req.params.id,
+      status: status,
+    })
+      .populate("user", "email")
+      .sort({ appointmentDate: -1 }); // Sort by date, newest first
+
+    res.json(appointments);
   } catch (error) {
     console.error("Server error:", error);
     res.status(500).json({ msg: "Server error" });
